@@ -1,4 +1,4 @@
-import { useState, ChangeEvent, FormEvent } from 'react';
+import { useState, ChangeEvent, FormEvent, useEffect } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -48,6 +48,7 @@ export default function CrossChainTransferForm({
     destinationChain: 'avalanche',
     recipient: ''
   });
+  const [useOneNetwork, setUseOneNetwork] = useState(false);
 
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -59,11 +60,16 @@ export default function CrossChainTransferForm({
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (formData.sourceChain === formData.destinationChain) {
+    if (!useOneNetwork && formData.sourceChain === formData.destinationChain) {
       alert('Source and destination chains must be different');
       return;
     }
-    onSubmit(formData);
+    
+    const submitData = useOneNetwork 
+      ? { ...formData, destinationChain: formData.sourceChain }
+      : formData;
+      
+    onSubmit(submitData);
   };
 
   const handleUseMyAddress = () => {
@@ -94,9 +100,19 @@ export default function CrossChainTransferForm({
     }
   };
 
+  // Update destination chain when useOneNetwork changes
+  useEffect(() => {
+    if (useOneNetwork) {
+      setFormData(prev => ({
+        ...prev,
+        destinationChain: prev.sourceChain
+      }));
+    }
+  }, [useOneNetwork]);
+
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Cross-Chain Transfer</DialogTitle>
+      <DialogTitle>Add Funds</DialogTitle>
       <form onSubmit={handleSubmit}>
         <DialogContent>
           <Box mb={3}>
@@ -117,6 +133,19 @@ export default function CrossChainTransferForm({
                 </MenuItem>
               ))}
             </TextField>
+
+            <Box sx={{ display: 'flex', alignItems: 'center', mt: 1, mb: 2 }}>
+              <input
+                type="checkbox"
+                id="useOneNetwork"
+                checked={useOneNetwork}
+                onChange={(e) => setUseOneNetwork(e.target.checked)}
+                style={{ marginRight: '8px' }}
+              />
+              <label htmlFor="useOneNetwork" style={{ fontSize: '0.875rem' }}>
+                Use One Network (Deposit only)
+              </label>
+            </Box>
 
             <TextField
               select

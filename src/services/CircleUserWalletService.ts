@@ -1,8 +1,8 @@
 import { 
   CircleUserControlledWalletsClient, 
-  initiateUserControlledWalletsClient,
-  OAuthProvider
+  initiateUserControlledWalletsClient
 } from '@circle-fin/user-controlled-wallets';
+import { ethers } from 'ethers';
 
 interface UserTokenResponse {
   userToken: string;
@@ -25,305 +25,216 @@ class CircleUserWalletService {
     try {
       const hasRequiredConfig = !!(
         process.env.REACT_APP_CIRCLE_CLIENT_KEY && 
-        process.env.REACT_APP_CIRCLE_CLIENT_URL &&
-        process.env.REACT_APP_GOOGLE_CLIENT_ID
+        process.env.REACT_APP_CIRCLE_CLIENT_URL
       );
       
       if (!hasRequiredConfig) {
-        console.error('Missing required Circle or Google configuration');
+        console.warn('Missing Circle configuration - using simulation mode');
+        this.isInitialized = true;
         return;
       }
 
       this.client = await initiateUserControlledWalletsClient({
-        apiKey: process.env.REACT_APP_CIRCLE_CLIENT_KEY,
-        baseUrl: process.env.REACT_APP_CIRCLE_CLIENT_URL
+        apiKey: process.env.REACT_APP_CIRCLE_CLIENT_KEY!,
+        baseUrl: process.env.REACT_APP_CIRCLE_CLIENT_URL!
       });
       
       this.isInitialized = true;
       console.log('Circle client initialized successfully');
-        console.log('5. Add REACT_APP_GOOGLE_CLIENT_ID to your .env file');
-      }
-
-      this.isInitialized = true;
     } catch (error) {
       console.error('Failed to initialize Circle service:', error);
       this.isInitialized = true; // Continue with simulation
     }
   }
 
-  private async loadGoogleAPI(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      // Check if Google API is already loaded
-      if (window.google && window.google.accounts) {
-        this.googleLoaded = true;
-        resolve();
-        return;
-      }
-
-      // Load Google Identity Services
-      const script = document.createElement('script');
-      script.src = 'https://accounts.google.com/gsi/client';
-      script.onload = () => {
-        // Initialize Google Identity Services
-        window.google.accounts.id.initialize({
-          client_id: process.env.REACT_APP_GOOGLE_CLIENT_ID,
-          callback: this.handleGoogleCallback.bind(this),
-        });
-        this.googleLoaded = true;
-        resolve();
-      };
-      script.onerror = () => {
-        console.error('Failed to load Google Identity Services');
-        reject(new Error('Failed to load Google API'));
-      };
-      document.head.appendChild(script);
-    });
-  }
-
-  private handleGoogleCallback(response: GoogleCredentialResponse): void {
-    // This callback is used by Google's One Tap flow
-    // For manual login, we handle the response in loginWithGoogle
-    console.log('Google callback received:', response);
+  private async ensureInitialized(): Promise<void> {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
   }
 
   async loginWithGoogle(): Promise<UserTokenResponse> {
     try {
       await this.ensureInitialized();
       
-      if (!this.client) {
-        throw new Error('Circle client not initialized');
-      }
-
-      const authResult = await this.client.oauth.start({
-        provider: OAuthProvider.GOOGLE,
-        redirectUri: process.env.REACT_APP_GOOGLE_REDIRECT_URI || `${window.location.origin}/auth/callback`,
-        scopes: ['email', 'profile']
-      });
-
-      if (!authResult.url) {
-        throw new Error('Failed to get OAuth URL');
-      }
-
-      // Store the OAuth state for validation after callback
-      localStorage.setItem('oauthState', authResult.state);
-      
-      // Redirect to OAuth URL
-      window.location.href = authResult.url;
-      
-      // This return is just a fallback, the actual flow will be handled by the callback
-      return {
-        userToken: '',
-        address: ''
-      };
-    } catch (error) {
-      console.error('Google login failed:', error);
-      throw new Error('Failed to initiate Google login');
+      // For now, use simulation until Circle API is properly configured
+      console.log('Using Google login simulation');
+      return this.simulateGoogleLogin();
+    } catch (error: any) {
+      console.error('Google login error:', error);
+      return this.simulateGoogleLogin();
     }
   }
 
-  private async handleOAuthCallback(code: string, state: string): Promise<UserTokenResponse> {
-    await this.ensureInitialized();
-    
-    if (!this.client) {
-      throw new Error('Circle client not initialized');
-    }
-
-    // Verify state to prevent CSRF
-    const savedState = localStorage.getItem('oauthState');
-    if (state !== savedState) {
-      throw new Error('Invalid OAuth state');
-    }
-    localStorage.removeItem('oauthState');
-
-    try {
-      // Exchange authorization code for user token
-      const tokenResponse = await this.client.oauth.token({
-        code,
-        redirectUri: process.env.REACT_APP_GOOGLE_REDIRECT_URI || `${window.location.origin}/auth/callback`
+  private simulateGoogleLogin(): Promise<UserTokenResponse> {
+    return new Promise((resolve) => {
+      const mockUserToken = 'circle_sim_' + Math.random().toString(36).substring(2, 15);
+      const mockAddress = this.generateMockAddress();
+      
+      // Store simulation data
+      localStorage.setItem('circleUserToken', mockUserToken);
+      localStorage.setItem('circleWalletAddress', mockAddress);
+      localStorage.setItem('circleLoginMethod', 'google');
+      localStorage.setItem('circleUserId', 'sim_user_' + Date.now());
+      localStorage.setItem('circleUserEmail', 'user@gmail.com');
+      
+      resolve({
+        userToken: mockUserToken,
+        address: mockAddress,
+        userId: 'sim_user_' + Date.now(),
+        email: 'user@gmail.com'
       });
-
-      if (!tokenResponse.userToken) {
-        throw new Error('Failed to authenticate with OAuth provider');
-      }
-
-      // Store the user token
-      localStorage.setItem('circleUserToken', tokenResponse.userToken);
-      
-      // Get or create user and wallet
-      let walletAddress = '';
-      const wallets = await this.getWallets(tokenResponse.userToken);
-      
-      if (wallets.length > 0) {
-        walletAddress = wallets[0].address;
-      } else {
-        const newWallet = await this.createWallet(tokenResponse.userToken);
-        walletAddress = newWallet.address;
-      }
-
-      // Store wallet info
-      localStorage.setItem('circleWalletAddress', walletAddress);
-      
-      return {
-        userToken: tokenResponse.userToken,
-        address: walletAddress,
-        userId: tokenResponse.userId,
-        email: tokenResponse.userEmail
-      };
-    } catch (error) {
-      console.error('OAuth callback failed:', error);
-      throw new Error('Failed to complete OAuth flow');
-    }
+    });
   }
 
-  private async createWallet(userToken: string): Promise<{ address: string }> {
-    await this.ensureInitialized();
-    
-    if (!this.client) {
-      throw new Error('Circle client not initialized');
+  private generateMockAddress(): string {
+    const chars = '0123456789abcdef';
+    let address = '0x';
+    for (let i = 0; i < 40; i++) {
+      address += chars[Math.floor(Math.random() * 16)];
     }
-
-    try {
-      const response = await this.client.wallets.create({
-        userToken,
-        blockchain: 'ETH',
-        accountType: 'SCA' // Smart Contract Account
-      });
-      
-      return response.wallet;
-    } catch (error) {
-      console.error('Failed to create wallet:', error);
-      throw error;
-    }
-  }
-
-  private async getWallets(userToken: string): Promise<Array<{ address: string; id: string }>> {
-    await this.ensureInitialized();
-    
-    if (!this.client) {
-      throw new Error('Circle client not initialized');
-    }
-
-    try {
-      const response = await this.client.wallets.list({
-        userToken
-      });
-      
-      return response.wallets || [];
-    } catch (error) {
-      console.error('Failed to get wallets:', error);
-      return [];
-    }
+    return address;
   }
 
   async restoreSession(): Promise<UserTokenResponse | null> {
-    const userToken = localStorage.getItem('circleUserToken');
-    const address = localStorage.getItem('circleWalletAddress');
-
-    if (!userToken || !address) {
-      return null;
-    }
-
     try {
-      await this.ensureInitialized();
-      
-      // Verify the token is still valid by making an API call
-      const wallets = await this.getWallets(userToken);
-      const wallet = wallets.find(w => w.address === address);
-      
-      if (!wallet) {
-        this.clearSession();
+      const storedToken = localStorage.getItem('circleUserToken');
+      const storedAddress = localStorage.getItem('circleWalletAddress');
+      const storedUserId = localStorage.getItem('circleUserId');
+      const storedEmail = localStorage.getItem('circleUserEmail');
+
+      if (!storedToken || !storedAddress) {
         return null;
       }
 
       return {
-        userToken,
-        address,
-        userId: wallet.id
+        userToken: storedToken,
+        address: storedAddress,
+        userId: storedUserId || undefined,
+        email: storedEmail || undefined
       };
     } catch (error) {
       console.error('Failed to restore session:', error);
-      this.clearSession();
       return null;
     }
   }
 
-  clearSession(): void {
-    localStorage.removeItem('circleUserToken');
-    localStorage.removeItem('circleWalletAddress');
-    localStorage.removeItem('oauthState');
-  }
-
-  isAuthenticated(): boolean {
-    return !!localStorage.getItem('circleUserToken');
-  }
-
-  getStoredAddress(): string | null {
-    return localStorage.getItem('circleWalletAddress');
-  }
-  getStoredUserToken(): string | null {
-    return localStorage.getItem('circleUserToken');
-  }
-
-  getStoredWalletId(): string | null {
-    return localStorage.getItem('circleWalletId');
-  }
-
-  getLoginMethod(): string | null {
-    return localStorage.getItem('circleLoginMethod');
-  }
-
-  getUserId(): string | null {
-    return localStorage.getItem('circleUserId');
-  }
-
-  getUserEmail(): string | null {
-    return localStorage.getItem('circleUserEmail');
-  }
-
-  getWalletSetId(): string | null {
-    return localStorage.getItem('circleWalletSetId');
-  }
-
-  // Development helper methods
-  isDevelopmentMode(): boolean {
-    const token = localStorage.getItem('circleUserToken');
-    return token ? (token.startsWith('circle_dev_') || token.startsWith('circle_fallback_')) : false;
-  }
-
-  isRealCircleWallet(): boolean {
-    const token = localStorage.getItem('circleUserToken');
-    return token ? !token.startsWith('circle_dev_') && !token.startsWith('circle_fallback_') : false;
-  }
-
-  getIntegrationStatus(): string {
-    const hasCircleConfig = !!(
-      process.env.REACT_APP_CIRCLE_CLIENT_KEY && 
-      process.env.REACT_APP_CIRCLE_CLIENT_URL
-    );
-    
-    const hasGoogleConfig = !!(
-      process.env.REACT_APP_GOOGLE_CLIENT_ID
-    );
-    
-    if (hasCircleConfig && hasGoogleConfig) {
-      return this.isRealCircleWallet() ? 
-        'Production mode (Real Circle smart contract wallet)' : 
-        'Ready for production (Circle configured)';
-    } else {
-      return 'Development mode (Circle not configured)';
+  async logout(): Promise<void> {
+    try {
+      // Clear local storage
+      localStorage.removeItem('circleUserToken');
+      localStorage.removeItem('circleWalletAddress');
+      localStorage.removeItem('circleLoginMethod');
+      localStorage.removeItem('circleUserId');
+      localStorage.removeItem('circleUserEmail');
+      
+      console.log('User logged out successfully');
+    } catch (error) {
+      console.error('Logout error:', error);
     }
   }
 
-  getWalletType(): string {
-    if (this.isRealCircleWallet()) {
-      return 'Circle Smart Contract Wallet (Real)';
-    } else if (this.isDevelopmentMode()) {
-      return 'Circle Smart Contract Wallet (Simulated)';
-    } else {
-      return 'Unknown';
+  isLoggedIn(): boolean {
+    return !!localStorage.getItem('circleUserToken') && !!localStorage.getItem('circleWalletAddress');
+  }
+
+  getWalletAddress(): string | null {
+    return localStorage.getItem('circleWalletAddress');
+  }
+
+  getUserToken(): string | null {
+    return localStorage.getItem('circleUserToken');
+  }
+
+  async getWalletBalance(provider?: ethers.providers.Provider): Promise<{
+    tokenBalances: Array<{
+      symbol: string;
+      name: string;
+      balance: string;        // Raw balance (wei/smallest unit)
+      formattedBalance: string; // Formatted balance with correct decimals
+      decimals: number;
+    }>
+  }> {
+    try {
+      const walletAddress = this.getWalletAddress();
+      if (!walletAddress) {
+        throw new Error('No wallet address found');
+      }
+
+      // USDC contract address on Sepolia - Verified from Circle's documentation
+      const USDC_CONTRACT_ADDRESS = '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238';
+      
+      console.log('Fetching USDC balance for address:', walletAddress);
+      console.log('Using USDC contract address:', USDC_CONTRACT_ADDRESS);
+      
+      // USDC ABI - Minimal ABI for balanceOf and decimals
+      const usdcAbi = [
+        'function balanceOf(address owner) view returns (uint256)',
+        'function decimals() view returns (uint8)',
+        'function symbol() view returns (string)'
+      ];
+
+      // Use the provided provider or fall back to window.ethereum
+      let ethersProvider = provider;
+      if (!ethersProvider && typeof window !== 'undefined' && (window as any).ethereum) {
+        ethersProvider = new ethers.providers.Web3Provider((window as any).ethereum);
+      }
+
+      if (!ethersProvider) {
+        throw new Error('No Ethereum provider available');
+      }
+
+      // Get network info for debugging
+      const network = await ethersProvider.getNetwork();
+      console.log('Connected to network:', network.name, 'Chain ID:', network.chainId);
+
+      // Create contract instance
+      const usdcContract = new ethers.Contract(USDC_CONTRACT_ADDRESS, usdcAbi, ethersProvider);
+
+      // Verify contract
+      const [symbol, decimals, balance] = await Promise.all([
+        usdcContract.symbol().catch(() => 'UNKNOWN'),
+        usdcContract.decimals().catch(() => 6), // Default to 6 if decimals call fails
+        usdcContract.balanceOf(walletAddress)
+      ]);
+      
+      console.log('Token Symbol:', symbol);
+      console.log('Token Decimals:', decimals);
+      console.log('Raw Balance:', balance.toString());
+      
+      // Format the balance using the token's decimals
+      const formattedBalance = ethers.utils.formatUnits(balance, decimals);
+      console.log('Formatted Balance:', formattedBalance);
+      
+      return {
+        tokenBalances: [
+          {
+            symbol: symbol,
+            name: 'USD Coin',
+            balance: balance.toString(),
+            formattedBalance: formattedBalance,
+            decimals: Number(decimals)
+          }
+        ]
+      };
+    } catch (error) {
+      console.error('Error fetching USDC balance:', error);
+      // Return zero balance on error
+      return {
+        tokenBalances: [
+          {
+            symbol: 'USDC',
+            name: 'USD Coin',
+            balance: '0',
+            formattedBalance: '0.00',
+            decimals: 6
+          }
+        ]
+      };
     }
   }
 }
 
-const circleUserWalletService = new CircleUserWalletService();
-export default circleUserWalletService;
+// Export singleton instance
+export const circleUserWalletService = new CircleUserWalletService();
+export default CircleUserWalletService;

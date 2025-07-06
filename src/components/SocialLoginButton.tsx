@@ -1,5 +1,5 @@
 import React from 'react';
-import { circleWalletService } from '../services/CircleWalletService';
+import { circleUserWalletService } from '../services/CircleUserWalletService';
 
 interface SocialLoginButtonProps {
   provider: 'google' | 'facebook' | 'apple';
@@ -44,7 +44,7 @@ const providerConfig = {
     text: 'Continue with Apple',
     icon: (
       <svg className="w-5 h-5" viewBox="0 0 24 24" fill="#000000">
-        <path d="M18.71 19.5c-.83 1.24-1.85 1.5-2.48 1.5-1.14 0-2.52-.93-4.2-.93-1.8 0-3.27.95-4.23.95-.92 0-2.27-1.23-3.13-3.03C3.93 15.15 3 11.97 3 9.25 3 7.5 3.5 6.08 4.5 5.04c.67-.75 1.5-1.14 2.25-1.14 1.08 0 2.04.73 2.94.73.9 0 2.4-.75 3.98-.61.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.82.03 3.02 2.65 4.03 2.68 4.04-.03.1-.5 1.76-1.67 3.48zM13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.5-2.95 1.35h-.03c-.11-.06-.14-.1-.25-.1-.25.04-.5.08-.76.08-.2 0-.39-.02-.56-.05.06-.01.11-.03.17-.04 1.2-.3 2.05-1.54 2.37-2.15.08-.15.15-.3.21-.45.03-.04.05-.09.08-.13.02-.03.04-.06.06-.09z' />
+        <path d="M18.71 19.5c-.83 1.24-1.85 1.5-2.48 1.5-1.14 0-2.52-.93-4.2-.93-1.8 0-3.27.95-4.23.95-.92 0-2.27-1.23-3.13-3.03C3.93 15.15 3 11.97 3 9.25 3 7.5 3.5 6.08 4.5 5.04c.67-.75 1.5-1.14 2.25-1.14 1.08 0 2.04.73 2.94.73.9 0 2.4-.75 3.98-.61.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.82.03 3.02 2.65 4.03 2.68 4.04-.03.1-.5 1.76-1.67 3.48zM13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.5-2.95 1.35h-.03c-.11-.06-.14-.1-.25-.1-.25.04-.5.08-.76.08-.2 0-.39-.02-.56-.05.06-.01.11-.03.17-.04 1.2-.3 2.05-1.54 2.37-2.15.08-.15.15-.3.21-.45.03-.04.05-.09.08-.13.02-.03.04-.06.06-.09z" />
       </svg>
     ),
   },
@@ -56,14 +56,14 @@ const SocialLoginButton: React.FC<SocialLoginButtonProps> = ({
   disabled = false,
   className = '',
 }) => {
-  const handleClick = async () => {
+  const buttonClickHandler = async () => {
     if (onClick) {
       onClick();
     }
 
     try {
       if (provider === 'google') {
-        await circleWalletService.loginWithGoogle();
+        await circleUserWalletService.loginWithGoogle();
       } else {
         console.warn(`${provider} login not implemented yet`);
       }
@@ -77,14 +77,14 @@ const SocialLoginButton: React.FC<SocialLoginButtonProps> = ({
   return (
     <button
       type="button"
-      onClick={handleClick}
+      onClick={buttonClickHandler}
       disabled={disabled}
       className={`flex items-center justify-center w-full px-4 py-3 rounded-md border border-gray-300 bg-white text-gray-700 font-medium shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 ${className}`}
     >
       <span className="mr-2">{config.icon}</span>
       <span>{config.text}</span>
     </button>
-  );
+  )
 };
 
 export default SocialLoginButton;

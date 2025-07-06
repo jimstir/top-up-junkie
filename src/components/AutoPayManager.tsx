@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
+import { Service, ServiceStorage } from '../services/ServiceStorage';
+import ServiceList from './ServiceList';
 import './AutoPayManager.css';
+import './ServiceList.css';
 
 interface AutoPayConfig {
   isActive: boolean;
@@ -44,6 +47,11 @@ const AutoPayManager: React.FC<AutoPayManagerProps> = ({ contractAddress, provid
   const [autopayAmount, setAutopayAmount] = useState<string>('');
   const [autopayInterval, setAutopayInterval] = useState<number>(30);
   const [serviceProvider, setServiceProvider] = useState<string>('');
+  const [serviceName, setServiceName] = useState<string>('');
+  const [serviceDescription, setServiceDescription] = useState<string>('');
+  const [useOneNetwork, setUseOneNetwork] = useState<boolean>(false);
+  const [services, setServices] = useState<Service[]>([]);
+  const [selectedService, setSelectedService] = useState<Service | null>(null);
 
   useEffect(() => {
     const initializeContract = async () => {
@@ -148,9 +156,13 @@ const AutoPayManager: React.FC<AutoPayManagerProps> = ({ contractAddress, provid
 
     try {
       setLoading(true);
+      
+      console.log('Using one network for deposit:', useOneNetwork);
+      
       const tx = await contract.depositFunds({
         value: ethers.utils.parseEther(depositAmount)
       });
+      
       await tx.wait();
       setDepositAmount('');
       refreshData();
@@ -179,24 +191,53 @@ const AutoPayManager: React.FC<AutoPayManagerProps> = ({ contractAddress, provid
     }
   };
 
-  const handleSetAutopay = async () => {
-    if (!contract || !autopayAmount || !serviceProvider) return;
+  const handleSetAutopay = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!contract || !autopayAmount || !autopayInterval || !serviceProvider || !serviceName) return;
 
     try {
       setLoading(true);
-      const intervalSeconds = autopayInterval * 24 * 60 * 60; // Convert days to seconds
+      setError('');
+      
+      // First, save the service details to local storage
+      const newService: Omit<Service, 'id' | 'createdAt'> = {
+        name: serviceName,
+        description: serviceDescription,
+        amount: ethers.utils.parseUnits(autopayAmount, 6).toString(),
+        frequency: autopayInterval === 1 ? 'daily' : 
+                  autopayInterval === 7 ? 'weekly' :
+                  autopayInterval === 30 ? 'monthly' : 'yearly',
+        nextPayment: new Date(Date.now() + autopayInterval * 86400 * 1000).toISOString(),
+        tokenAddress: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238', // USDC on Sepolia
+        recipient: serviceProvider
+      };
+      
+      // Save to local storage
+      ServiceStorage.addService(newService);
+      
+      // Then set up the autopay on-chain
       const tx = await contract.setAutopay(
-        ethers.utils.parseEther(autopayAmount),
-        intervalSeconds,
+        ethers.utils.parseUnits(autopayAmount, 6), // Assuming 6 decimals for USDC
+        autopayInterval * 86400, // Convert days to seconds
         serviceProvider
       );
+      
       await tx.wait();
+      await refreshData();
+      
+      // Reset form
       setAutopayAmount('');
+      setAutopayInterval(30);
       setServiceProvider('');
-      refreshData();
-    } catch (err) {
-      console.error("Error setting autopay:", err);
-      setError("Failed to set autopay");
+      setServiceName('');
+      setServiceDescription('');
+      
+      // Refresh services list
+      setServices(ServiceStorage.getServices());
+      
+    } catch (err: any) {
+      console.error('Error setting up autopay:', err);
+      setError(err.message || 'Failed to set up autopay');
     } finally {
       setLoading(false);
     }
@@ -232,136 +273,174 @@ const AutoPayManager: React.FC<AutoPayManagerProps> = ({ contractAddress, provid
     return new Date(lastPayment.getTime() + interval * 1000);
   };
 
+  const handleEditService = (service: Service) => {
+    setSelectedService(service);
+    setServiceName(service.name);
+    setServiceDescription(service.description);
+    setServiceProvider(service.recipient);
+    setAutopayAmount(ethers.utils.formatUnits(service.amount, 6));
+    // You might want to set other fields based on the selected service
+  };
+
   return (
-    <div className="autopay-manager">
+    <div className="auto-pay-manager">
       <h2>AutoPay Manager</h2>
       
-      {error && <div className="error-message">{error}</div>}
+      {error && <div className="alert alert-danger">{error}</div>}
       
-      <div className="user-info">
-        <div className="info-item">
-          <label>User Address:</label>
-          <span>{userAddress}</span>
-        </div>
-        <div className="info-item">
-          <label>Balance:</label>
-          <span>{balance} ETH</span>
-        </div>
-      </div>
-
-      <div className="section">
-        <h3>Manage Funds</h3>
-        
+      <div className="balance-section">
+        <h3>Your Balance: {balance} USDC</h3>
         <div className="form-group">
-          <label>Deposit Amount (ETH):</label>
           <input
             type="number"
+            className="form-control"
+            placeholder="Amount to deposit"
             value={depositAmount}
             onChange={(e) => setDepositAmount(e.target.value)}
-            placeholder="0.0"
-            step="0.001"
-            min="0"
           />
-          <button onClick={handleDeposit} disabled={loading || !depositAmount}>
-            {loading ? 'Processing...' : 'Deposit'}
+          <button 
+            className="btn btn-primary"
+            onClick={handleDeposit}
+            disabled={!depositAmount || loading}
+          >
+            Deposit
           </button>
         </div>
-
+        
         <div className="form-group">
-          <label>Withdraw Amount (ETH):</label>
           <input
             type="number"
+            className="form-control"
+            placeholder="Amount to withdraw"
             value={withdrawAmount}
             onChange={(e) => setWithdrawAmount(e.target.value)}
-            placeholder="0.0"
-            step="0.001"
-            min="0"
           />
-          <button onClick={handleWithdraw} disabled={loading || !withdrawAmount}>
-            {loading ? 'Processing...' : 'Withdraw'}
+          <button 
+            className="btn btn-secondary"
+            onClick={handleWithdraw}
+            disabled={!withdrawAmount || loading}
+          >
+            Withdraw
           </button>
         </div>
       </div>
-
-      <div className="section">
+      
+      <div className="autopay-section">
         <h3>AutoPay Configuration</h3>
-        
-        {autoPayConfig ? (
-          <div className="autopay-status">
-            <div className="status-active">
-              <h4>✅ AutoPay Active</h4>
-              <div className="config-details">
-                <p><strong>Amount:</strong> {autoPayConfig.amount} ETH</p>
-                <p><strong>Interval:</strong> {formatInterval(autoPayConfig.interval)}</p>
-                <p><strong>Service Provider:</strong> {autoPayConfig.serviceProvider}</p>
-                <p><strong>Last Payment:</strong> {autoPayConfig.lastPayment.toLocaleDateString()}</p>
-                <p><strong>Next Payment:</strong> {nextPaymentDate(autoPayConfig.lastPayment, autoPayConfig.interval).toLocaleDateString()}</p>
-              </div>
-              <button onClick={handleCancelAutopay} disabled={loading} className="cancel-button">
-                {loading ? 'Processing...' : 'Cancel AutoPay'}
-              </button>
-            </div>
+        {autoPayConfig?.isActive ? (
+          <div className="autopay-active">
+            <p>AutoPay is active for {autoPayConfig.serviceProvider}</p>
+            <p>Amount: {ethers.utils.formatUnits(autoPayConfig.amount, 6)} USDC</p>
+            <p>Interval: {autoPayConfig.interval / 86400} days</p>
+            <p>Last payment: {new Date(autoPayConfig.lastPayment).toLocaleString()}</p>
+            <button 
+              className="btn btn-danger"
+              onClick={handleCancelAutopay}
+              disabled={loading}
+            >
+              Disable AutoPay
+            </button>
           </div>
         ) : (
-          <div className="autopay-setup">
-            <h4>Set Up AutoPay</h4>
-            
+          <form onSubmit={handleSetAutopay}>
             <div className="form-group">
-              <label>Payment Amount (ETH):</label>
-              <input
-                type="number"
-                value={autopayAmount}
-                onChange={(e) => setAutopayAmount(e.target.value)}
-                placeholder="0.0"
-                step="0.001"
-                min="0"
-              />
-            </div>
-
-            <div className="form-group">
-              <label>Payment Interval (days):</label>
-              <input
-                type="number"
-                value={autopayInterval}
-                onChange={(e) => setAutopayInterval(Number(e.target.value))}
-                min="1"
-              />
-            </div>
-
-            <div className="form-group">
-              <label>Service Provider Address:</label>
+              <label>Service Name</label>
               <input
                 type="text"
+                className="form-control"
+                value={serviceName}
+                onChange={(e) => setServiceName(e.target.value)}
+                placeholder="e.g., Netflix, Spotify"
+                required
+              />
+            </div>
+            <div className="form-group">
+              <label>Service Description (Optional)</label>
+              <input
+                type="text"
+                className="form-control"
+                value={serviceDescription}
+                onChange={(e) => setServiceDescription(e.target.value)}
+                placeholder="e.g., Premium Subscription"
+              />
+            </div>
+            <div className="form-group">
+              <label>Service Provider Address</label>
+              <input
+                type="text"
+                className="form-control"
                 value={serviceProvider}
                 onChange={(e) => setServiceProvider(e.target.value)}
                 placeholder="0x..."
+                required
               />
             </div>
-
+            <div className="form-group">
+              <label>Amount (USDC)</label>
+              <input
+                type="number"
+                step="0.000001"
+                min="0.000001"
+                className="form-control"
+                value={autopayAmount}
+                onChange={(e) => setAutopayAmount(e.target.value)}
+                required
+              />
+            </div>
+            <div className="form-group">
+              <label>Payment Frequency</label>
+              <select
+                className="form-control"
+                value={autopayInterval}
+                onChange={(e) => setAutopayInterval(Number(e.target.value))}
+                required
+              >
+                <option value="1">Daily</option>
+                <option value="7">Weekly</option>
+                <option value="30">Monthly</option>
+                <option value="365">Yearly</option>
+                <option value="0">Custom (days)</option>
+              </select>
+              {autopayInterval === 0 && (
+                <input
+                  type="number"
+                  min="1"
+                  className="form-control mt-2"
+                  value={autopayInterval}
+                  onChange={(e) => setAutopayInterval(Number(e.target.value))}
+                  required
+                />
+              )}
+            </div>
+            <div className="form-check mb-3">
+              <input
+                type="checkbox"
+                className="form-check-input"
+                id="useOneNetwork"
+                checked={useOneNetwork}
+                onChange={(e) => setUseOneNetwork(e.target.checked)}
+              />
+              <label className="form-check-label" htmlFor="useOneNetwork">
+                Use One Network
+              </label>
+            </div>
             <button 
-              onClick={handleSetAutopay} 
-              disabled={loading || !autopayAmount || !serviceProvider}
-              className="setup-button"
+              type="submit" 
+              className="btn btn-primary"
+              disabled={loading}
             >
-              {loading ? 'Processing...' : 'Set Up AutoPay'}
+              {loading ? 'Processing...' : 'Enable AutoPay'}
             </button>
-          </div>
+          </form>
         )}
       </div>
 
-      <div className="section">
-        <h3>How It Works</h3>
-        <div className="info-box">
-          <p>
-            🔄 <strong>Chainlink Automation:</strong> Once you set up AutoPay, Chainlink's decentralized automation network will automatically execute your payments according to your schedule.
-          </p>
-          <p>
-            💰 <strong>Secure:</strong> Your funds are stored in the smart contract and can only be withdrawn by you or automatically paid to approved service providers.
-          </p>
-          <p>
-            ⚡ <strong>Reliable:</strong> Payments are executed on-chain without requiring any manual intervention from you.
-          </p>
-        </div>
+      <div className="services-section mt-5">
+        <h3>Your Services</h3>
+        <ServiceList 
+          onServiceSelect={handleEditService}
+          showActions={true}
+        />
       </div>
     </div>
   );

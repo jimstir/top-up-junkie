@@ -77,42 +77,7 @@ class CircleUserWalletService {
   }
 
   private async simulateGoogleLogin(): Promise<UserTokenResponse> {
-    // Simulation for development purposes
-    return new Promise((resolve, reject) => {
-      const confirmed = window.confirm('🚀 Google Login Simulation\n\nThis is a development simulation of Google OAuth.\nIn production, this would redirect to Google\'s OAuth flow.\n\nClick OK to simulate successful login.');
-      
-      setTimeout(() => {
-        if (confirmed) {
-          const mockUserToken = 'circle_sim_' + Math.random().toString(36).substring(2, 15);
-          const mockAddress = this.generateMockAddress();
-          
-          // Store simulation data
-          localStorage.setItem('circleUserToken', mockUserToken);
-          localStorage.setItem('circleWalletAddress', mockAddress);
-          localStorage.setItem('circleLoginMethod', 'google');
-          localStorage.setItem('circleUserId', 'sim_user_' + Date.now());
-          localStorage.setItem('circleUserEmail', 'user@gmail.com');
-          
-          resolve({
-            userToken: mockUserToken,
-            address: mockAddress,
-            userId: 'sim_user_' + Date.now()
-          });
-        } else {
-          reject(new Error('User cancelled Google login'));
-        }
-      }, 1000);
-    });
-  }
-
-  private generateMockAddress(): string {
-    // Generate a mock Ethereum address for simulation
-    const chars = '0123456789abcdef';
-    let address = '0x';
-    for (let i = 0; i < 40; i++) {
-      address += chars[Math.floor(Math.random() * chars.length)];
-    }
-    return address;
+    throw new Error('Google login simulation is disabled. Please configure Circle client with valid credentials.');
   }
 
   async createUserAndWallet(userToken: string): Promise<{ userId: string; walletId: string; address: string }> {
@@ -173,13 +138,10 @@ class CircleUserWalletService {
         return null;
       }
 
-      // For simulation, just return stored data
-      if (storedToken.startsWith('circle_sim_')) {
-        return {
-          userToken: storedToken,
-          address: storedAddress,
-          userId: storedUserId || undefined
-        };
+      // Validate that we have a real token
+      if (!storedToken) {
+        this.clearSession();
+        return null;
       }
 
       // For real implementation, validate token with Circle's API
@@ -226,17 +188,6 @@ class CircleUserWalletService {
       const userId = this.getUserId();
       if (!userId) {
         return [];
-      }
-
-      // In simulation mode, return a mock wallet
-      if (process.env.REACT_APP_SIMULATION_MODE === 'true') {
-        return [{
-          id: 'mock-wallet-id',
-          address: this.generateMockAddress(),
-          accountType: 'SCA',
-          custodyType: 'DEVELOPER',
-          userId: userId
-        }];
       }
 
       // Get user's wallets through Circle's API

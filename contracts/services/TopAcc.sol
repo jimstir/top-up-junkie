@@ -31,8 +31,30 @@ contract TopAcc is Ownable, AutomationCompatibleInterface {
     // User's service authorizations
     mapping(address => mapping(uint256 => ServiceAuthorization)) public serviceAuthorizations;
     
+    // AutoPay configuration
+    struct AutoPayConfig {
+        bool isActive;
+        uint256 amount;
+        uint256 interval;
+        uint256 lastPayment;
+        uint256 service;
+        address serviceProvider;
+    }
+    
+    // User's autopay configurations
+    mapping(address => AutoPayConfig) public autoPayConfigs;
+    
     // Active users for automation
     address[] public activeUsers;
+    
+    // Active autopay users
+    address[] public activeAutoPayUsers;
+    
+    // Blacklist mapping
+    mapping(uint256 => bool) public _blackList;
+    
+    // User balances per service
+    mapping(address => mapping(uint256 => uint256)) public _userBalances;
     
     // Events
     event FundsDeposited(address indexed user, uint256 amount);
@@ -41,19 +63,15 @@ contract TopAcc is Ownable, AutomationCompatibleInterface {
     event ServiceAuthorizationRevoked(address indexed user, uint256 indexed serviceId);
     event ServiceJoined(address indexed user, uint256 indexed serviceId, uint256 amount);
     event RecurringPaymentProcessed(address indexed user, uint256 indexed serviceId, uint256 amount);
-    
     event AutoPayRegistered(address indexed user, uint256 amount, uint256 interval, uint256 service);
-    event AutoPayExecuted(address indexed user, uint256 amount, uint256 service);
+    event AutoPayExecuted(address indexed user, uint256 amount, address indexed serviceProvider);
     event AutoPayDisabled(address indexed user);
-    event FundsDeposited(address indexed user, uint256 amount);
-    event FundsWithdrawn(address indexed user, uint256 amount);
-    event ServiceAuthorized(address indexed user, uint256 indexed serviceId, uint256 maxAmount, uint256 interval);
-    event ServiceAuthorizationRevoked(address indexed user, uint256 indexed serviceId);
-    event ServiceJoined(address indexed user, uint256 indexed serviceId, uint256 amount);
-    
-    constructor(address _addServiceAddress) Ownable(msg.sender) {
+    event BalanceDeducted(address indexed user, address indexed service, uint256 amount);
+
+    constructor(address _addServiceAddress) {
         require(_addServiceAddress != address(0), "Invalid AddService address");
         addServiceAddress = _addServiceAddress;
+        _transferOwnership(msg.sender);
     }
     
     // Set the AddService contract address (only owner)
@@ -258,7 +276,7 @@ contract TopAcc is Ownable, AutomationCompatibleInterface {
                 _userBalances[user][config.service] >= config.amount) {
                 
                 // Execute the autopay
-                deductBalance(user, config.amount);
+                deductBalance(user, config.serviceProvider, config.amount);
                 config.lastPayment = block.timestamp;
                 
                 emit AutoPayExecuted(user, config.amount, config.serviceProvider);
@@ -275,6 +293,22 @@ contract TopAcc is Ownable, AutomationCompatibleInterface {
     // Get all active autopay users (for debugging)
     function getActiveAutoPayUsers() public view returns (address[] memory) {
         return activeAutoPayUsers;
+    }
+    
+    /**
+     * @dev Internal function to deduct balance from a user's account
+     * @param user The address of the user
+     * @param service The address of the service
+     * @param amount The amount to deduct
+     */
+    function deductBalance(address user, address service, uint256 amount) internal {
+        require(userBalances[user] >= amount, "Insufficient balance");
+        userBalances[user] -= amount;
+        
+        // Transfer the tokens to the service provider
+        IERC20(USDC_SEPOLIA).safeTransfer(service, amount);
+        
+        emit BalanceDeducted(user, service, amount);
     }
     
     // Emergency function to pause all autopays (only owner)

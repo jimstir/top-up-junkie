@@ -1,5 +1,4 @@
-import React, { useState, useEffect } from 'react';
-import { useWallet } from '../contexts/WalletContext';
+import React, { useState, useEffect, useRef, ChangeEvent } from 'react';
 import { ethers } from 'ethers';
 import { 
   Box, 
@@ -13,25 +12,46 @@ import {
   DialogActions, 
   TextField,
   InputAdornment,
-  Card,
-  CardContent,
-  CardActions,
-  IconButton,
   Paper,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
-  TableRow
+  TableRow,
+  IconButton,
+  Tooltip
 } from '@mui/material';
-import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import { useWallet } from '../contexts/WalletContext';
+import AddServiceArtifact from '../contracts/services/AddService.sol/AddService.json';
 import './Dashboard.css';
 import CrossChainTransferForm from '../components/CrossChainTransfer/CrossChainTransferForm';
 import CrossChainService from '../services/CrossChainService';
 
+// Type for the AddService artifact
+type AddServiceArtifactType = {
+  abi: any[];
+  bytecode: string;
+  [key: string]: any;
+};
+
+// Type assertion for the imported artifact
+const typedAddServiceArtifact = AddServiceArtifact as unknown as AddServiceArtifactType;
+
 const Dashboard = () => {
-  const { isConnected, address, walletType, userToken, refreshBalance, provider } = useWallet();
+  const { 
+    isConnected, 
+    address, 
+    refreshBalance, 
+    provider, 
+    contractBalance,
+    contractAddress,
+    debugWalletStatus,
+    loadContractFromFile
+  } = useWallet();
+  
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isLoadingContract, setIsLoadingContract] = useState(false);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [notification, setNotification] = useState<{
@@ -69,31 +89,109 @@ const Dashboard = () => {
       return;
     }
 
+    // Validate form inputs
+    if (!newService.name || !newService.amount || !newService.interval) {
+      showNotification('Please fill in all required fields', 'error');
+      return;
+    }
+
     try {
       setIsRegistering(true);
       
       // Get the signer from the provider
-      const signer = await provider.getSigner();
+      const signer = provider.getSigner();
+      const userAddress = await signer.getAddress();
       
-      // Get the AddService contract instance
-      const addServiceAddress = process.env.REACT_APP_ADD_SERVICE_CONTRACT_ADDRESS;
-      if (!addServiceAddress) {
-        throw new Error('AddService contract address not configured');
+      // Check if we have a local JSON with the contract address
+      let storedContract = localStorage.getItem('addServiceContract');
+      let addServiceAddress: string = '';
+      let isNewDeployment = false;
+      let useStoredContract = false;
+      
+      if (storedContract) {
+        try {
+          // Use the existing contract
+          const contractData = JSON.parse(storedContract);
+          
+          // Verify the contract is on the current network
+          const currentNetwork = await provider.getNetwork();
+          if (contractData.network !== currentNetwork.chainId) {
+            throw new Error('Contract is on a different network');
+          }
+          
+          addServiceAddress = contractData.address;
+          useStoredContract = true;
+          showNotification('Using existing AddService contract', 'info');
+        } catch (error) {
+          console.warn('Error using stored contract, deploying new one', error);
+          // If there's an issue with the stored contract, we'll deploy a new one
+          useStoredContract = false;
+        }
       }
       
+      if (!useStoredContract) {
+        // Deploy a new AddService contract
+        showNotification('Deploying new AddService contract...', 'info');
+        
+        const AddServiceFactory = new ethers.ContractFactory(
+          typedAddServiceArtifact.abi,
+          typedAddServiceArtifact.bytecode,
+          signer
+        );
+        
+        const addService = await AddServiceFactory.deploy();
+        await addService.deployed();
+        addServiceAddress = addService.address;
+        isNewDeployment = true;
+        
+        // Store the contract address in localStorage
+        const network = await provider.getNetwork();
+        const contractData = {
+          address: addServiceAddress,
+          network: network.chainId,
+          owner: userAddress,
+          timestamp: new Date().toISOString(),
+          name: 'AddService',
+          version: '1.0.0'
+        };
+        localStorage.setItem('addServiceContract', JSON.stringify(contractData, null, 2));
+        
+        showNotification('New AddService contract deployed successfully!', 'success');
+      }
+      
+      // Get the contract instance
       const addService = new ethers.Contract(
         addServiceAddress,
-        ['function registerService(uint256 cost, uint256 interval) external returns (uint256)'],
+        typedAddServiceArtifact.abi,
         signer
       );
       
       // Convert amount to wei (assuming 6 decimals for USDC)
       const cost = ethers.utils.parseUnits(newService.amount, 6);
-      const interval = parseInt(newService.interval) * 24 * 60 * 60; // Convert days to seconds
+      const intervalInSeconds = parseInt(newService.interval) * 24 * 60 * 60; // Convert days to seconds
       
       // Call the registerService function
-      const tx = await addService.registerService(cost, interval);
-      await tx.wait();
+      showNotification('Registering service on the blockchain...', 'info');
+      
+      // Estimate gas first
+      const gasEstimate = await addService.estimateGas.registerService(cost, intervalInSeconds);
+      
+      // Execute with a buffer for gas
+      const tx = await addService.registerService(cost, intervalInSeconds, {
+        gasLimit: gasEstimate.mul(120).div(100) // 20% buffer
+      });
+      
+      showNotification('Transaction sent, waiting for confirmation...', 'info');
+      
+      const receipt = await tx.wait();
+      
+      // Find the ServiceRegistered event in the transaction receipt
+      const event = receipt.events?.find((e: any) => e.event === 'ServiceRegistered');
+      const serviceId = event?.args?.serviceId?.toString();
+      
+      if (!serviceId) {
+        throw new Error('Failed to get service ID from transaction');
+      }
       
       // Reset form and close modal
       setNewService({
@@ -104,14 +202,33 @@ const Dashboard = () => {
       });
       setIsServiceModalOpen(false);
       
-      showNotification('Service registered successfully!', 'success');
+      showNotification(
+        `Service #${serviceId} registered successfully! ${isNewDeployment ? '(New contract deployed)' : ''}`,
+        'success'
+      );
+      
+      // Refresh any service lists or UI elements that might be affected
+      // refreshServicesList(); // Uncomment if you have a function to refresh services list
       
     } catch (error: any) {
-      console.error('Error registering service:', error);
-      showNotification(
-        error.message || 'Failed to register service',
-        'error'
-      );
+      console.error('Error in handleAddService:', error);
+      
+      let errorMessage = 'Failed to register service';
+      
+      // Handle common errors
+      if (error.code === 4001) {
+        errorMessage = 'Transaction was rejected by user';
+      } else if (error.code === -32603) {
+        // Try to extract a better error message if possible
+        const reason = error.reason || error.data?.message || error.message;
+        errorMessage = `Transaction failed: ${reason}`;
+      } else if (error.code === 'INSUFFICIENT_FUNDS') {
+        errorMessage = 'Insufficient funds for transaction';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      showNotification(errorMessage, 'error');
     } finally {
       setIsRegistering(false);
     }
@@ -183,6 +300,38 @@ const Dashboard = () => {
     }
   }, [provider]);
 
+  const handleFileUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsLoadingContract(true);
+      
+      // Use the loadContractFromFile function from the wallet context
+      const result = await loadContractFromFile(file);
+      
+      if (result && result.address) {
+        showNotification('Contract loaded successfully!', 'success');
+        
+        // The contract address has been updated in the context
+        // and the balance has been refreshed automatically
+      }
+      
+    } catch (error: any) {
+      console.error('Error loading contract:', error);
+      showNotification(
+        error.message || 'Failed to load contract from file',
+        'error'
+      );
+    } finally {
+      setIsLoadingContract(false);
+      // Reset the file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
   // Mock data for services
   const services = [
     {
@@ -239,6 +388,108 @@ const Dashboard = () => {
 
   return (
     <Box className="dashboard-container" sx={{ p: 3 }}>
+      {/* Contract Balance Card */}
+      {isConnected && (
+        <Box sx={{ mb: 4 }}>
+          <Paper sx={{ p: 3, mb: 3, bgcolor: 'background.paper' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Typography variant="h6">Contract Balance</Typography>
+              <Box>
+                <Tooltip title="Load contract from JSON file">
+                  <IconButton 
+                    component="label"
+                    disabled={isLoadingContract}
+                    sx={{ mr: 1 }}
+                  >
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      hidden
+                      accept=".json"
+                      onChange={handleFileUpload}
+                    />
+                    📁
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Debug wallet status">
+                  <IconButton 
+                    onClick={debugWalletStatus}
+                    size="small"
+                    sx={{ mr: 1 }}
+                  >
+                    🐞
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            </Box>
+            
+            <Box sx={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 2
+            }}>
+              <Box sx={{ flex: 1, minWidth: 200 }}>
+                <Typography variant="body1" color="text.secondary" gutterBottom>
+                  TopAcc Contract Balance
+                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Typography variant="h4" sx={{ fontWeight: 600 }}>
+                    {contractBalance || '0.00'}
+                  </Typography>
+                  <Typography variant="h6" color="text.secondary">
+                    USDC
+                  </Typography>
+                </Box>
+                
+                {contractAddress && (
+                  <Tooltip title={contractAddress} placement="bottom-start">
+                    <Typography 
+                      variant="body2" 
+                      color="text.secondary" 
+                      sx={{ 
+                        mt: 1, 
+                        fontFamily: 'monospace',
+                        cursor: 'pointer',
+                        '&:hover': {
+                          textDecoration: 'underline'
+                        }
+                      }}
+                      onClick={() => {
+                        navigator.clipboard.writeText(contractAddress);
+                        showNotification('Contract address copied to clipboard', 'info');
+                      }}
+                    >
+                      {`${contractAddress.substring(0, 6)}...${contractAddress.substring(38)}`}
+                    </Typography>
+                  </Tooltip>
+                )}
+              </Box>
+              
+              <Box sx={{ display: 'flex', gap: 2, mt: { xs: 2, sm: 0 } }}>
+                <Button 
+                  variant="contained" 
+                  color="primary"
+                  onClick={() => setIsTransferModalOpen(true)}
+                  sx={{ height: 'fit-content' }}
+                >
+                  Add Funds
+                </Button>
+                <Button 
+                  variant="outlined"
+                  onClick={refreshBalance}
+                  disabled={isLoadingContract}
+                  sx={{ height: 'fit-content' }}
+                >
+                  Refresh
+                </Button>
+              </Box>
+            </Box>
+          </Paper>
+        </Box>
+      )}
+
       <Box className="dashboard-header">
         <Typography variant="h4" component="h1">
           Services List

@@ -10,7 +10,7 @@ export interface TransactionRequest {
 
 export interface TransactionResponse {
   hash: string;
-  wait: () => Promise<ethers.providers.TransactionReceipt>;
+  wait: () => Promise<any>;
 }
 
 export interface WalletContextType {
@@ -20,15 +20,25 @@ export interface WalletContextType {
   walletType: 'metamask' | 'circle-social' | null;
   userToken: string | null;
   loginMethod: 'google' | 'email' | null;
+  balance: string;
   usdcBalance: string;
+  ethBalance: string;
+  contractBalance: string;
+  contractAddress: string | null;
   provider: ethers.providers.Web3Provider | null;
+  loading: boolean;
   connect: () => Promise<string | null>;
-  disconnect: () => void;
   connectMetaMask: () => Promise<string | null>;
   connectWithGoogle: () => Promise<void>;
-  disconnectWallet: () => void;
-  switchNetwork: (chainId: string) => Promise<void>;
+  disconnect: () => void;
+  depositFunds: (amount: string) => Promise<ethers.ContractTransaction>;
   refreshBalance: () => Promise<void>;
+  addUSDCToWallet: () => Promise<void>;
+  checkEthBalance: () => Promise<string | null>;
+  debugWalletStatus: () => Promise<void>;
   copyToClipboard: (text: string) => void;
   sendTransaction: (tx: TransactionRequest) => Promise<TransactionResponse>;
+  switchNetwork: (chainId: string) => Promise<void>;
+  checkWalletConnection: () => Promise<boolean>;
+  loadContractFromFile: (file: File) => Promise<{ address: string }>;
 }

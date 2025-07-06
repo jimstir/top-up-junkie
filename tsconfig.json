@@ -15,8 +15,13 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
+    "jsxImportSource": "react",
     "baseUrl": "src",
-    "allowImportingTsExtensions": true
+    "types": ["node"],
+    "allowImportingTsExtensions": true,
+    "paths": {
+      "@artifacts/*": ["../artifacts/*"]
+    }
   },
   "include": ["src"],
   "exclude": ["node_modules"]

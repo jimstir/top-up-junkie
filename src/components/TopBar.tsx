@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Box, AppBar, Toolbar, IconButton, Button, Typography, useTheme } from '@mui/material';
+import React, { useState, useEffect, useRef } from 'react';
+import { Link, useLocation } from 'react-router-dom';
+import { Box, AppBar, Toolbar, IconButton, Button, Typography } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
@@ -11,13 +11,11 @@ import SocialLoginModal from './SocialLoginModal';
 import '../styles/TopBar.css';
 
 const TopBar = () => {
-  const theme = useTheme();
   const location = useLocation();
-  const navigate = useNavigate();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showWalletDropdown, setShowWalletDropdown] = useState(false);
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
   const [isSocialLoginModalOpen, setIsSocialLoginModalOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Get wallet state and methods from context
@@ -27,12 +25,14 @@ const TopBar = () => {
     address, 
     network,
     usdcBalance,
-    connect: connectWallet, 
+    ethBalance,
     disconnect: disconnectWallet, 
     connectMetaMask, 
     connectWithGoogle, 
-    copyToClipboard, 
-    refreshBalance 
+    debugWalletStatus,
+    addUSDCToWallet,
+    checkEthBalance, 
+    copyToClipboard
   } = wallet;
 
   // Close dropdown when clicking outside
@@ -48,10 +48,6 @@ const TopBar = () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
-
-  const formatAddress = (addr: string) => {
-    return `${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}`;
-  };
 
   const handleConnect = async (event: React.MouseEvent) => {
     event.stopPropagation(); // Prevent event bubbling
@@ -85,10 +81,8 @@ const TopBar = () => {
       await connectMetaMask();
       setIsWalletModalOpen(false);
       
-      // Navigate to dashboard if not already there
-      if (!location.pathname.includes('/dashboard')) {
-        navigate('/dashboard');
-      }
+      // Dashboard redirection is handled by the router
+      window.location.href = '/dashboard';
       
     } catch (error: any) {
       console.error('Failed to connect MetaMask:', error);
@@ -112,7 +106,7 @@ const TopBar = () => {
       await connectWithGoogle();
       setIsSocialLoginModalOpen(false);
       if (!location.pathname.includes('/dashboard')) {
-        navigate('/dashboard');
+        window.location.href = '/dashboard';
       }
     } catch (error) {
       console.error('Failed to connect with Google:', error);
@@ -261,9 +255,12 @@ const TopBar = () => {
                 address={address}
                 network={network || 'Ethereum Sepolia'}
                 balance={usdcBalance || '0.00'}
+                ethBalance={ethBalance || '0.0000'}
                 onDisconnect={handleDisconnect}
                 onCopyAddress={handleCopyAddress}
                 onSwitchWallet={handleSwitchWallet}
+                onAddUSDC={addUSDCToWallet}
+                onDebugWallet={debugWalletStatus}
               />
             )}
           </Box>

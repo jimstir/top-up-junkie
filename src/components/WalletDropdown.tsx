@@ -6,18 +6,24 @@ interface WalletDropdownProps {
   address: string | null;
   network: string;
   balance: string;
+  ethBalance: string;
   onDisconnect: () => void;
   onCopyAddress: () => void;
   onSwitchWallet: () => void;
+  onAddUSDC?: () => void;
+  onDebugWallet?: () => void;
 }
 
 const WalletDropdown: React.FC<WalletDropdownProps> = ({
   address,
   network,
   balance,
+  ethBalance,
   onDisconnect,
   onCopyAddress,
   onSwitchWallet,
+  onAddUSDC,
+  onDebugWallet,
 }) => {
   const formatAddress = (addr: string | null) => {
     if (!addr) return '';
@@ -60,11 +66,31 @@ const WalletDropdown: React.FC<WalletDropdownProps> = ({
       {/* Balance Section */}
       <Box sx={{ p: 2 }}>
         <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-          Balance
+          Balances
         </Typography>
-        <Typography variant="h6" fontWeight={600}>
-          {balance} USDC
-        </Typography>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="body2" color="text.secondary">
+              Sepolia ETH
+            </Typography>
+            <Typography variant="body1" fontWeight={500}>
+              {ethBalance} ETH
+            </Typography>
+          </Box>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="body2" color="text.secondary">
+              USDC
+            </Typography>
+            <Typography variant="body1" fontWeight={500}>
+              {balance} USDC
+            </Typography>
+          </Box>
+          {parseFloat(ethBalance) < 0.001 && (
+            <Typography variant="caption" color="warning.main" sx={{ mt: 0.5 }}>
+              ⚠️ Low ETH balance - may not cover gas fees
+            </Typography>
+          )}
+        </Box>
       </Box>
 
       <Divider />
@@ -107,6 +133,24 @@ const WalletDropdown: React.FC<WalletDropdownProps> = ({
 
       {/* Actions */}
       <Box sx={{ p: 1 }}>
+        {onAddUSDC && (
+          <Button
+            fullWidth
+            onClick={onAddUSDC}
+            sx={{
+              justifyContent: 'flex-start',
+              py: 1.5,
+              px: 2,
+              color: 'text.primary',
+              textTransform: 'none',
+              fontWeight: 400,
+              fontSize: '0.875rem',
+              mb: 0.5,
+            }}
+          >
+            Add USDC Token to Wallet
+          </Button>
+        )}
         <Button
           fullWidth
           startIcon={<SwapHoriz />}
@@ -119,10 +163,29 @@ const WalletDropdown: React.FC<WalletDropdownProps> = ({
             textTransform: 'none',
             fontWeight: 400,
             fontSize: '0.9375rem',
+            mb: 0.5,
           }}
         >
           Switch Wallet
         </Button>
+        {onDebugWallet && (
+          <Button
+            fullWidth
+            onClick={onDebugWallet}
+            sx={{
+              justifyContent: 'flex-start',
+              py: 1.5,
+              px: 2,
+              color: 'text.secondary',
+              textTransform: 'none',
+              fontWeight: 400,
+              fontSize: '0.875rem',
+              mb: 0.5,
+            }}
+          >
+            Debug Wallet (Console)
+          </Button>
+        )}
         <Button
           fullWidth
           startIcon={<Logout />}

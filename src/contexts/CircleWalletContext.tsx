@@ -10,8 +10,8 @@ interface CircleWalletContextType {
   error: string | null;
   
   // Methods
-  loginWithGoogle: () => Promise<void>;
-  handleOAuthCallback: (code: string, state: string) => Promise<void>;
+  loginWithGoogle: () => Promise<{ userToken: string; address: string; userId?: string; email?: string }>;
+  handleOAuthCallback: (code: string, state: string) => Promise<{ userToken: string; address: string; userId?: string; email?: string }>;
   logout: () => void;
 }
 

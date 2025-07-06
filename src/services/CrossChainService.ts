@@ -1,6 +1,5 @@
-import { BigNumber, ethers } from 'ethers';
+import { ethers } from 'ethers';
 import { NETWORKS } from '../components/CrossChainTransfer/CrossChainTransferForm';
-import CircleUserWalletService from './CircleUserWalletService';
 
 // CCTP contract ABIs
 const TOKEN_MESSENGER_ABI = [
